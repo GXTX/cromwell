@@ -31,6 +31,70 @@ extern volatile int nInteruptable;
 volatile CURRENT_VIDEO_MODE_DETAILS vmode;
 extern KNOWN_FLASH_TYPE aknownflashtypesDefault[];
 
+void memtest(void)
+{
+    unsigned char bank = 0;
+
+    if (xbox_ram == 64)
+    {
+        //Unknown why this is done but has to be executed
+        //It probably has to do with video memory allocation.
+        (*(unsigned int*)(0xFD000000 + 0x100200)) = 0x03070103 ;
+        (*(unsigned int*)(0xFD000000 + 0x100204)) = 0x11448000 ;
+
+        PciWriteDword(BUS_0, DEV_0, FUNC_0, 0x84, 0x7FFFFFF);  //Force 128 MB
+    }
+
+    //DisplayProgressBar(0, 4, 0xffff00ff);                      //Draw ProgressBar frame.
+    for(bank = 0; bank < 4; bank++)
+    {
+        printk("\n           Ram chip %u : %s",bank+1, testBank(bank) ? "Failed" : "Success");
+        //DisplayProgressBar(bank + 1, 4, 0xffff00ff);                   //Purple progress bar.
+    }
+
+    VIDEO_ATTR=0xffc8c8c8;
+
+    if (xbox_ram == 64)     //Revert to 64MB RAM if previously set.
+    {
+        PciWriteDword(BUS_0, DEV_0, FUNC_0, 0x84, 0x3FFFFFF);  // 64 MB
+    }
+	sleep(10000);
+}
+
+int testBank(int bank)
+{
+    unsigned int counter, subCounter, lastValue;
+    unsigned int *membasetop = (unsigned int*)((64*1024*1024));
+    unsigned char result=0;    //Start assuming everything is good.
+
+    lastValue = 1;
+    //Clear Upper 64MB
+    for (counter= 0; counter < (64*1024*1024/4);counter+=16)
+    {
+        for(subCounter = 0; subCounter < 3; subCounter++)
+            membasetop[counter+subCounter+bank*4] = lastValue;                         //Set it all to 0x1
+    }
+
+    while(lastValue < 0x80000000)                                      //Test every data bit pins.
+    {
+        for (counter= 0; counter < (64*1024*1024/4);counter+=16)       //Test every address bit pin. 4194304 * 8 = 32MB
+        {
+            for(subCounter = 0; subCounter < 3; subCounter++)
+            {
+                if(membasetop[counter+subCounter+bank*4]!=lastValue)
+                {
+                    result = 1;    //1=no no
+                    lastValue = 0x80000000;
+                    return result;        //No need to go further. Bank is broken.
+                }
+                membasetop[counter+subCounter+bank*4] = lastValue<<1;        //Prepare for next read.
+            }
+        }
+        lastValue = lastValue << 1;    //Next data bit pin.
+    }
+    return result;
+}
+
 //////////////////////////////////////////////////////////////////////
 //
 //  BootResetAction()
@@ -209,8 +273,9 @@ extern void BootResetAction ( void ) {
 	setLED("gggg");
 
 //	printk("i2C=%d SMC=%d, IDE=%d, tick=%d una=%d unb=%d\n", nCountI2cinterrupts, nCountInterruptsSmc, nCountInterruptsIde, BIOS_TICK_COUNT, nCountUnusedInterrupts, nCountUnusedInterruptsPic2);
-	IconMenuInit();
-	IconMenu();
+	//IconMenuInit();
+	//IconMenu();
+	memtest();
 	//Should never come back here.
 	while(1);  
 }
